@@ -1,0 +1,173 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin-arm64"]
+}
+
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum OrderStatus {
+  PENDING_REVIEW
+  RECEIVED
+  ACCEPTED
+  IN_PROGRESS
+  READY
+  COMPLETED
+  CANCELED
+}
+
+enum EmailParseStatus {
+  SUCCESS
+  FAILED
+  NEEDS_REVIEW
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  role         Role     @default(STAFF)
+  passwordHash String
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  orderEvents   OrderEvent[]   @relation("EventActor")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  userId     String
+  tokenHash  String
+  revokedAt  DateTime?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Order {
+  id            String      @id @default(uuid())
+
+  // Customer details (from email or manual entry)
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+
+  // Fulfillment details
+  pickupTime    DateTime?
+  notes         String?
+
+  status        OrderStatus @default(PENDING_REVIEW)
+
+  // Money stored as cents for safe math
+  totalCents    Int         @default(0)
+
+  // Analytics timestamps (these are KEY for your admin app)
+  receivedAt    DateTime?   // when created/ingested
+  acceptedAt    DateTime?
+  inProgressAt  DateTime?
+  readyAt       DateTime?
+  completedAt   DateTime?
+  canceledAt    DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  items         OrderItem[]
+  events        OrderEvent[]
+  ingests       EmailIngest[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([pickupTime])
+  @@index([receivedAt])
+  @@index([completedAt])
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+
+  name       String
+  quantity   Int      @default(1)
+  priceCents Int      @default(0)
+  notes      String?
+
+  createdAt  DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([name])
+}
+
+model OrderEvent {
+  id        String   @id @default(uuid())
+  orderId   String
+
+  type      String   // e.g. "status.updated", "order.created_from_email"
+  message   String?
+
+  // Who caused this event (optional for system/email events)
+  actorId   String?
+  actor     User?    @relation("EventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([actorId])
+  @@index([createdAt])
+}
+
+model EmailIngest {
+  id          String           @id @default(uuid())
+  source      String           // "sendgrid", "mailgun", "postmark"
+  messageId   String           @unique
+
+  from        String?
+  subject     String?
+  receivedAt  DateTime?
+
+  rawText     String?
+  rawHtml     String?
+
+  parseStatus EmailParseStatus @default(NEEDS_REVIEW)
+  error       String?
+
+  orderId     String?
+  order       Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime @default(now())
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@index([parseStatus])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String   // "user.created", "role.changed", etc.
+  metaJson  String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
