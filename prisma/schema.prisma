@@ -141,7 +141,7 @@ model OrderEvent {
 
 model EmailIngest {
   id          String           @id @default(uuid())
-  source      String           // "sendgrid", "mailgun", "postmark"
+  source      String           // "sendgrid", "mailgun", "postmark", "inbound_email"
   messageId   String           @unique
 
   from        String?
@@ -150,6 +150,9 @@ model EmailIngest {
 
   rawText     String?
   rawHtml     String?
+
+  // NEW: dedupe forwarded emails with different messageIds
+  bodyHash    String?          // sha256(normalized rawText)
 
   parseStatus EmailParseStatus @default(NEEDS_REVIEW)
   error       String?
@@ -162,7 +165,9 @@ model EmailIngest {
   @@index([orderId])
   @@index([createdAt])
   @@index([parseStatus])
+  @@index([bodyHash])
 }
+
 
 model AuditLog {
   id        String   @id @default(uuid())
