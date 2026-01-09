@@ -3,7 +3,6 @@ generator client {
   binaryTargets = ["native", "darwin-arm64"]
 }
 
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -11,6 +10,7 @@ datasource db {
 
 enum Role {
   ADMIN
+  MANAGER
   STAFF
 }
 
@@ -35,6 +35,7 @@ model User {
   email        String   @unique
   name         String?
   role         Role     @default(STAFF)
+  active       Boolean  @default(true)
   passwordHash String
 
   createdAt    DateTime @default(now())
@@ -43,6 +44,10 @@ model User {
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
   orderEvents   OrderEvent[]   @relation("EventActor")
+
+  @@index([role])
+  @@index([active])
+  @@index([createdAt])
 }
 
 model RefreshToken {

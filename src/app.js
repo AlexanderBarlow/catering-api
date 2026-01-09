@@ -6,6 +6,8 @@ const helmet = require("helmet");
 const morgan = require("morgan");
 const authRoutes = require("./routes/auth.routes");
 const ordersRoutes = require("./routes/orders.routes");
+const usersRoutes = require("./routes/users.routes");
+
 
 
 
@@ -27,6 +29,8 @@ app.use("/health", healthRoutes);
 app.use("/auth", authRoutes);
 app.use("/orders", ordersRoutes);
 app.use("/webhooks", webhookRoutes);
+app.use("/users", usersRoutes);
+
 
 
 
