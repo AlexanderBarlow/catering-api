@@ -25,7 +25,6 @@ async function createOrderWithItemsTx(parsed, subject) {
     return prisma.$transaction(async (tx) => {
         const order = await tx.order.create({
             data: {
-                source: parsed.source || "cfa.email",
                 storeCode: parsed.storeCode || null,
                 fulfillmentType: parsed.fulfillmentType || "UNKNOWN",
 
@@ -57,6 +56,7 @@ async function createOrderWithItemsTx(parsed, subject) {
                 },
             },
         });
+
 
         const mainItems = Array.isArray(parsed.items) ? parsed.items : [];
 
