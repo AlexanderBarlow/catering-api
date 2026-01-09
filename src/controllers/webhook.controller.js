@@ -93,49 +93,77 @@ async function createOrderWithItemsTx(parsed, subject) {
 
 const webhookController = {
     inboundEmail: async (req, res) => {
-        if (!verifyWebhook(req)) {
-            return res.status(401).json({ error: "Invalid webhook signature" });
-        }
-
-        const messageId =
-            req.body.messageId ||
-            req.body["Message-Id"] ||
-            req.body["message-id"] ||
-            req.body.id;
-
-        const from = req.body.from || req.body.sender || "";
-        const subject = req.body.subject || "";
-        const text = req.body.text || req.body["stripped-text"] || req.body.plain || "";
-        const html = req.body.html || req.body["stripped-html"] || req.body.htmlBody || null;
-
-        if (!messageId) {
-            return res.status(400).json({ error: "Missing messageId" });
-        }
-
-        const normalizedText = normalizeForHash(text || "");
-        const bodyHash = normalizedText ? sha256(normalizedText) : null;
-
-        // ✅ Deduplicate by messageId
-        const existingByMessageId = await prisma.emailIngest.findUnique({ where: { messageId } });
-        if (existingByMessageId) {
-            // If previous attempt failed before linking an order, retry processing
-            if (!existingByMessageId.orderId) {
-                // fall through (treat like not deduped)
-            } else {
-                return res.json({ ok: true, deduped: true, orderId: existingByMessageId.orderId });
+        try {
+            if (!verifyWebhook(req)) {
+                return res.status(401).json({ error: "Invalid webhook signature" });
             }
-        }
 
+            const messageId =
+                req.body.messageId ||
+                req.body["Message-Id"] ||
+                req.body["message-id"] ||
+                req.body.id;
 
-        // ✅ Deduplicate forwarded emails by bodyHash
-        if (bodyHash) {
-            const existingByHash = await prisma.emailIngest.findFirst({
-                where: { bodyHash },
-                orderBy: { createdAt: "desc" },
-            });
+            const from = req.body.from || req.body.sender || "";
+            const subject = req.body.subject || "";
+            const text = req.body.text || req.body["stripped-text"] || req.body.plain || "";
+            const html = req.body.html || req.body["stripped-html"] || req.body.htmlBody || null;
 
-            if (existingByHash) {
-                await prisma.emailIngest.create({
+            if (!messageId) {
+                return res.status(400).json({ error: "Missing messageId" });
+            }
+
+            const normalizedText = normalizeForHash(text || "");
+            const bodyHash = normalizedText ? sha256(normalizedText) : null;
+
+            // 1) messageId dedupe (but retry if poisoned / orderId null)
+            const existingByMessageId = await prisma.emailIngest.findUnique({ where: { messageId } });
+            let ingest = null;
+
+            if (existingByMessageId) {
+                if (existingByMessageId.orderId) {
+                    return res.json({ ok: true, deduped: true, orderId: existingByMessageId.orderId });
+                }
+                // poisoned ingest: reuse it & retry processing instead of failing unique constraint
+                ingest = existingByMessageId;
+            }
+
+            // 2) bodyHash dedupe (ONLY if existing has real orderId)
+            if (!ingest && bodyHash) {
+                const existingByHash = await prisma.emailIngest.findFirst({
+                    where: { bodyHash },
+                    orderBy: { createdAt: "desc" },
+                });
+
+                if (existingByHash && existingByHash.orderId) {
+                    await prisma.emailIngest.create({
+                        data: {
+                            source: "inbound_email",
+                            messageId,
+                            from,
+                            subject,
+                            receivedAt: new Date(),
+                            rawText: text ? String(text).slice(0, 200000) : null,
+                            rawHtml: html ? String(html).slice(0, 200000) : null,
+                            bodyHash,
+                            parseStatus: "SUCCESS",
+                            orderId: existingByHash.orderId,
+                            error: "Deduped by bodyHash (forwarded duplicate).",
+                        },
+                    });
+
+                    return res.json({
+                        ok: true,
+                        deduped: true,
+                        orderId: existingByHash.orderId,
+                    });
+                }
+                // If existingByHash exists but orderId is null, fall through and re-process.
+            }
+
+            // 3) create or reuse ingest
+            if (!ingest) {
+                ingest = await prisma.emailIngest.create({
                     data: {
                         source: "inbound_email",
                         messageId,
@@ -145,36 +173,26 @@ const webhookController = {
                         rawText: text ? String(text).slice(0, 200000) : null,
                         rawHtml: html ? String(html).slice(0, 200000) : null,
                         bodyHash,
-                        parseStatus: "SUCCESS",
-                        orderId: existingByHash.orderId,
-                        error: "Deduped by bodyHash (forwarded duplicate).",
+                        parseStatus: "NEEDS_REVIEW",
                     },
                 });
-
-                return res.json({
-                    ok: true,
-                    deduped: true,
-                    orderId: existingByHash.orderId,
+            } else {
+                ingest = await prisma.emailIngest.update({
+                    where: { id: ingest.id },
+                    data: {
+                        from,
+                        subject,
+                        receivedAt: new Date(),
+                        rawText: text ? String(text).slice(0, 200000) : null,
+                        rawHtml: html ? String(html).slice(0, 200000) : null,
+                        bodyHash,
+                        parseStatus: "NEEDS_REVIEW",
+                        error: null,
+                    },
                 });
             }
-        }
 
-        // Create ingest record
-        const ingest = await prisma.emailIngest.create({
-            data: {
-                source: "inbound_email",
-                messageId,
-                from,
-                subject,
-                receivedAt: new Date(),
-                rawText: text ? String(text).slice(0, 200000) : null,
-                rawHtml: html ? String(html).slice(0, 200000) : null,
-                bodyHash,
-                parseStatus: "NEEDS_REVIEW",
-            },
-        });
-
-        try {
+            // 4) parse + create order
             const parsed = parseInboundEmail({ from, subject, text });
 
             const needsReview =
@@ -193,6 +211,7 @@ const webhookController = {
                 },
             });
 
+            // 5) realtime notify (optional)
             const io = req.app.get("io");
             if (io) {
                 io.to("role:ADMIN").emit("order:created", { orderId: order.id });
@@ -207,19 +226,31 @@ const webhookController = {
                 parseStatus: needsReview ? "NEEDS_REVIEW" : "SUCCESS",
             });
         } catch (err) {
-            await prisma.emailIngest.update({
-                where: { id: ingest.id },
-                data: {
-                    parseStatus: "FAILED",
-                    error: String(err?.message || err),
-                },
-            });
+            // Try to persist failure on ingest if we can identify it by messageId.
+            try {
+                const messageId =
+                    req.body?.messageId ||
+                    req.body?.["Message-Id"] ||
+                    req.body?.["message-id"] ||
+                    req.body?.id;
+
+                if (messageId) {
+                    const existing = await prisma.emailIngest.findUnique({ where: { messageId } });
+                    if (existing) {
+                        await prisma.emailIngest.update({
+                            where: { id: existing.id },
+                            data: { parseStatus: "FAILED", error: String(err?.message || err) },
+                        });
+                    }
+                }
+            } catch (_) {
+                // swallow logging errors
+            }
 
             return res.status(500).json({
                 error: "Failed to process inbound email",
                 details: String(err?.message || err),
             });
-
         }
     },
 };
