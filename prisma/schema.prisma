@@ -30,6 +30,12 @@ enum EmailParseStatus {
   NEEDS_REVIEW
 }
 
+enum FulfillmentType {
+  PICKUP
+  DELIVERY
+  UNKNOWN
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -64,59 +70,77 @@ model RefreshToken {
 }
 
 model Order {
-  id            String      @id @default(uuid())
+  id              String          @id @default(uuid())
+
+  // Store / channel details
+  storeCode        String?         // e.g. (02348)
+  fulfillmentType  FulfillmentType @default(UNKNOWN)
 
   // Customer details (from email or manual entry)
-  customerName  String?
-  customerEmail String?
-  customerPhone String?
+  customerName     String?
+  customerEmail    String?
+  customerPhone    String?
+
+  // Catering-specific fields
+  guestCount       Int?
+  paperGoods       Boolean?
 
   // Fulfillment details
-  pickupTime    DateTime?
-  notes         String?
+  pickupTime       DateTime?
+  notes            String?
 
-  status        OrderStatus @default(PENDING_REVIEW)
+  status           OrderStatus     @default(PENDING_REVIEW)
 
   // Money stored as cents for safe math
-  totalCents    Int         @default(0)
+  subtotalCents    Int             @default(0)
+  taxCents         Int             @default(0)
+  totalCents       Int             @default(0)
 
   // Analytics timestamps (these are KEY for your admin app)
-  receivedAt    DateTime?   // when created/ingested
-  acceptedAt    DateTime?
-  inProgressAt  DateTime?
-  readyAt       DateTime?
-  completedAt   DateTime?
-  canceledAt    DateTime?
+  receivedAt       DateTime?       // when created/ingested
+  acceptedAt       DateTime?
+  inProgressAt     DateTime?
+  readyAt          DateTime?
+  completedAt      DateTime?
+  canceledAt       DateTime?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  items         OrderItem[]
-  events        OrderEvent[]
-  ingests       EmailIngest[]
+  items            OrderItem[]
+  events           OrderEvent[]
+  ingests          EmailIngest[]
 
   @@index([status])
   @@index([createdAt])
   @@index([pickupTime])
   @@index([receivedAt])
   @@index([completedAt])
+  @@index([storeCode])
+  @@index([fulfillmentType])
 }
 
 model OrderItem {
-  id         String   @id @default(uuid())
-  orderId    String
+  id           String   @id @default(uuid())
+  orderId      String
 
-  name       String
-  quantity   Int      @default(1)
-  priceCents Int      @default(0)
-  notes      String?
+  name         String
+  quantity     Int      @default(1)
+  priceCents   Int      @default(0)
+  notes        String?
 
-  createdAt  DateTime @default(now())
+  // Modifier support (child items like sauces beneath a tray)
+  parentItemId String?
+  parentItem   OrderItem?  @relation("OrderItemModifiers", fields: [parentItemId], references: [id], onDelete: Cascade)
+  modifiers    OrderItem[] @relation("OrderItemModifiers")
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  order        Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([name])
+  @@index([parentItemId])
 }
 
 model OrderEvent {
@@ -151,7 +175,7 @@ model EmailIngest {
   rawText     String?
   rawHtml     String?
 
-  // NEW: dedupe forwarded emails with different messageIds
+  // dedupe forwarded emails with different messageIds
   bodyHash    String?          // sha256(normalized rawText)
 
   parseStatus EmailParseStatus @default(NEEDS_REVIEW)
@@ -167,7 +191,6 @@ model EmailIngest {
   @@index([parseStatus])
   @@index([bodyHash])
 }
-
 
 model AuditLog {
   id        String   @id @default(uuid())
