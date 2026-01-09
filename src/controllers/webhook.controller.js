@@ -116,12 +116,16 @@ const webhookController = {
         const bodyHash = normalizedText ? sha256(normalizedText) : null;
 
         // ✅ Deduplicate by messageId
-        const existingByMessageId = await prisma.emailIngest.findUnique({
-            where: { messageId },
-        });
+        const existingByMessageId = await prisma.emailIngest.findUnique({ where: { messageId } });
         if (existingByMessageId) {
-            return res.json({ ok: true, deduped: true, orderId: existingByMessageId.orderId });
+            // If previous attempt failed before linking an order, retry processing
+            if (!existingByMessageId.orderId) {
+                // fall through (treat like not deduped)
+            } else {
+                return res.json({ ok: true, deduped: true, orderId: existingByMessageId.orderId });
+            }
         }
+
 
         // ✅ Deduplicate forwarded emails by bodyHash
         if (bodyHash) {
