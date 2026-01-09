@@ -211,7 +211,11 @@ const webhookController = {
                 },
             });
 
-            return res.status(500).json({ error: "Failed to process inbound email" });
+            return res.status(500).json({
+                error: "Failed to process inbound email",
+                details: String(err?.message || err),
+            });
+
         }
     },
 };
