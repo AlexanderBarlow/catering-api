@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Catering API</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; background: #0b1220; color: #fff; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 56px 20px; }
+      .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px; padding: 22px; }
+      a { color: #7dd3fc; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      code { background: rgba(255,255,255,0.10); padding: 2px 6px; border-radius: 8px; }
+      .grid { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 18px; }
+      @media (min-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } }
+      .btn { display:inline-block; padding:10px 14px; border-radius:12px; border:1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.08); }
+      .muted { color: rgba(255,255,255,0.75); }
+      .title { font-size: 34px; margin: 0 0 8px; }
+      .sub { margin: 0 0 18px; }
+      ul { margin: 10px 0 0 18px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1 class="title">Catering API</h1>
+      <p class="sub muted">Internal + mobile app backend for orders, prep, and inbound email ingestion.</p>
+
+      <div class="card">
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <a class="btn" href="/docs">Docs</a>
+          <a class="btn" href="/health">Health</a>
+        </div>
+
+        <div class="grid">
+          <div class="card" style="padding:16px;">
+            <strong>Base URL</strong>
+            <div class="muted" style="margin-top:6px;"><code id="base"></code></div>
+          </div>
+
+          <div class="card" style="padding:16px;">
+            <strong>Quick endpoints</strong>
+            <ul class="muted">
+              <li><code>GET /health</code></li>
+              <li><code>POST /webhooks/inbound-email</code></li>
+              <li><code>GET /orders</code></li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="muted" style="margin-top:14px;">
+          Tip: keep docs in <code>/public/docs</code> so they deploy with your API.
+        </p>
+      </div>
+    </div>
+
+    <script>
+      document.getElementById("base").textContent = window.location.origin;
+    </script>
+  </body>
+</html>

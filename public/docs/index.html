@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Catering API — Internal Docs</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; padding: 34px 18px; background: #0b1220; color: #fff; }
+      .wrap { max-width: 980px; margin: 0 auto; }
+      a { color: #7dd3fc; text-decoration: none; }
+      code, pre { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; }
+      code { padding: 2px 6px; }
+      pre { padding: 14px; overflow: auto; }
+      h1,h2 { margin: 0 0 10px; }
+      .muted { color: rgba(255,255,255,0.75); }
+      .notice {
+        margin: 18px 0 28px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(229,22,54,0.12);
+        border: 1px solid rgba(229,22,54,0.35);
+        color: #ffd1d8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <p><a href="/">← Back</a></p>
+
+      <h1>Catering API Documentation</h1>
+
+      <div class="notice">
+        <strong>Internal Use Only</strong><br />
+        This API and its documentation are intended for internal use only.
+        Unauthorized use, access, or distribution is prohibited.
+        <br /><br />
+        For access or inquiries, contact
+        <a href="mailto:alex.barlow@rocketmail.com">alex.barlow@rocketmail.com</a>.
+      </div>
+
+      <p class="muted">
+        This documentation provides implementation notes and request examples
+        for approved internal consumers of the Catering API.
+      </p>
+
+      <h2>Health</h2>
+      <pre><code>GET /health</code></pre>
+
+      <h2>Inbound Email Webhook</h2>
+      <pre><code>POST /webhooks/inbound-email
+Content-Type: application/json
+
+{
+  "messageId": "test-123",
+  "from": "Chick-fil-A &lt;one@email.chick-fil-a.com&gt;",
+  "subject": "Incoming Catering Order...",
+  "text": "raw email text..."
+}</code></pre>
+
+      <h2>Authentication</h2>
+      <p class="muted">Protected routes require a valid bearer token:</p>
+      <pre><code>Authorization: Bearer &lt;ACCESS_TOKEN&gt;</code></pre>
+    </div>
+  </body>
+</html>
