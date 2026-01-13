@@ -1,8 +1,9 @@
 // src/lib/emailParser.js
-// v2 parser for Chick-fil-A inbound catering order emails (forwarded)
+// v3 parser for Chick-fil-A inbound catering order emails (forwarded)
 // - Extracts store code (e.g. 02348) from subject/body
 // - Extracts fulfillment type (pickup/delivery)
-// - Extracts pickup time from "Friday 1/9/2026 at 10:45am"
+// - Extracts service time from "Pickup Time" OR "Delivery Time" lines
+// - Extracts delivery address block (for delivery orders)
 // - Extracts customer info (name/phone/email), guestCount, paperGoods
 // - Extracts items + modifiers (indented sauce lines) and prices
 // - Extracts subtotal/tax/total
@@ -17,6 +18,7 @@ function clean(str) {
 function normalizeText(input = "") {
     return String(input ?? "")
         .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
         .replace(/\u00A0/g, " ")
         .replace(/[ \t]+/g, " ")
         .replace(/\n{3,}/g, "\n\n")
@@ -55,7 +57,7 @@ function parsePhone(str) {
 function parseStoreCode(subject, text) {
     const hay = `${subject || ""}\n${text || ""}`;
 
-    // Common patterns in your sample:
+    // Common patterns:
     // "... for (02348)"
     // "Catering Pickup Order for 02348"
     const m =
@@ -69,6 +71,7 @@ function parseStoreCode(subject, text) {
 function parseFulfillmentType(subject, text) {
     const hay = `${subject || ""}\n${text || ""}`.toLowerCase();
     if (hay.includes("catering delivery")) return "DELIVERY";
+    if (hay.includes("delivery order")) return "DELIVERY";
     if (hay.includes("pickup order")) return "PICKUP";
     if (hay.includes("catering pickup")) return "PICKUP";
     return "UNKNOWN";
@@ -85,18 +88,28 @@ function findLineIndex(lines, exactLower) {
     return lines.findIndex((l) => l.trim().toLowerCase() === exactLower);
 }
 
-function parsePickupTime(text) {
+/**
+ * Service time parser:
+ * - Pickup emails: "Pickup Time" then "Saturday 1/17/2026 at 11:30am"
+ * - Delivery emails: "Delivery Time" then "Wednesday 1/14/2026 at 11:30am"
+ * Returns JS Date in America/New_York
+ */
+function parseServiceTime(text) {
     const lines = getLines(text);
 
-    // Pickup Time
-    // Friday 1/9/2026 at 10:45am
-    const idx = findLineIndex(lines, "pickup time");
+    const pickupIdx = findLineIndex(lines, "pickup time");
+    const deliveryIdx = findLineIndex(lines, "delivery time");
+
+    const idx = pickupIdx !== -1 ? pickupIdx : deliveryIdx;
     if (idx === -1 || !lines[idx + 1]) return null;
 
     const raw = lines[idx + 1].trim();
 
     // "Friday 1/9/2026 at 10:45am"
-    const m = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+    // weekday word may be present but we don't require it
+    const m = raw.match(
+        /(\d{1,2})\/(\d{1,2})\/(\d{4})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i
+    );
     if (!m) return null;
 
     let month = parseInt(m[1], 10);
@@ -112,7 +125,6 @@ function parsePickupTime(text) {
     if (ampm === "pm" && hour !== 12) hour += 12;
     if (ampm === "am" && hour === 12) hour = 0;
 
-    // Interpret in America/New_York (matches your app + user timezone)
     const dt = DateTime.fromObject(
         { year, month, day, hour, minute, second: 0, millisecond: 0 },
         { zone: "America/New_York" }
@@ -120,6 +132,41 @@ function parsePickupTime(text) {
 
     if (!dt.isValid) return null;
     return dt.toJSDate();
+}
+
+/**
+ * Delivery Address block:
+ * Delivery Address
+ * <line 1>
+ * <line 2>
+ * ...
+ * stops when next major section begins.
+ */
+function parseDeliveryAddress(text) {
+    const lines = getLines(text);
+    const idx = findLineIndex(lines, "delivery address");
+    if (idx === -1) return null;
+
+    const stopWords = new Set([
+        "customer information",
+        "item name",
+        "quantity",
+        "price",
+        "subtotal",
+        "tax",
+        "total",
+    ]);
+
+    const addr = [];
+    for (let i = idx + 1; i < Math.min(lines.length, idx + 14); i++) {
+        const l = lines[i].trim();
+        if (!l) continue;
+        if (stopWords.has(l.toLowerCase())) break;
+        addr.push(l);
+    }
+
+    if (!addr.length) return null;
+    return addr.join("\n");
 }
 
 function parseCustomerBlock(text) {
@@ -138,16 +185,15 @@ function parseCustomerBlock(text) {
 
     // Expected layout:
     // Customer Information
-    // Mikey Zadroga
-    // +16105742061
-    // mikeyzadroga@gmail.com
-    // Guest Count:  24
-    // Paper Goods:  No
+    // Name
+    // Phone
+    // Email
+    // Guest Count:  24 (optional)
+    // Paper Goods:  No (optional)
     const name = lines[idx + 1]?.trim() || null;
     const phone = parsePhone(lines[idx + 2]?.trim());
     const email = parseEmail(lines[idx + 3]?.trim());
 
-    // guest count + paper goods can appear in next few lines (order may vary)
     let guestCount = null;
     let paperGoods = null;
 
@@ -173,13 +219,6 @@ function parseCustomerBlock(text) {
 function parseTotals(text) {
     const lines = getLines(text);
 
-    // Lines often like:
-    // Subtotal
-    // $142.00
-    // Tax
-    // $8.52
-    // Total
-    // $150.52
     function findMoneyAfterLabel(labelLower) {
         const i = findLineIndex(lines, labelLower);
         if (i === -1) return 0;
@@ -205,25 +244,11 @@ function parseItemsWithModifiers(text) {
     const start = findLineIndex(lines, "item name");
     if (start === -1) return [];
 
-    // Stop at subtotal
     const stop = findLineIndex(lines, "subtotal");
     const end = stop === -1 ? lines.length : stop;
 
     const region = lines.slice(start + 1, end);
 
-    // In the region, pattern is typically:
-    // <Item Name>
-    // <Quantity>
-    // <$Price>   (optional for modifiers)
-    // Modifiers appear "indented" or have no price and are often sauces, etc.
-    //
-    // We'll parse by scanning blocks:
-    // - Name line (string)
-    // - Qty line (int)
-    // - Optional price line ($...)
-    //
-    // If a block has price => main item
-    // If no price => modifier; attach to last main item as child
     const items = [];
     let lastMainItemIndex = -1;
 
@@ -241,7 +266,7 @@ function parseItemsWithModifiers(text) {
 
     let i = 0;
     while (i < region.length) {
-        let nameLine = region[i];
+        const nameLine = region[i];
         if (!nameLine || looksLikeSectionHeader(nameLine)) {
             i++;
             continue;
@@ -256,14 +281,13 @@ function parseItemsWithModifiers(text) {
         const hasPrice = Boolean(priceLine && /\$[\d,]+(?:\.\d{1,2})?/.test(priceLine));
         const priceCents = hasPrice ? parseMoneyToCents(priceLine) : 0;
 
-        // If we don't have a quantity, this isn't a parseable item block.
-        // Advance by 1 to avoid getting stuck.
+        // If no quantity, not parseable block; advance to avoid infinite loop
         if (!Number.isFinite(qty) || qty <= 0) {
             i++;
             continue;
         }
 
-        const isIndented = /^\s{2,}/.test(rawName); // modifier lines typically have leading spaces
+        const isIndented = /^\s{2,}/.test(rawName);
         const isModifier = !hasPrice || isIndented;
 
         const entry = {
@@ -271,49 +295,41 @@ function parseItemsWithModifiers(text) {
             quantity: qty,
             priceCents,
             notes: null,
-            parentItemId: null, // filled later in DB create if you want; here we just structure
-            _modifierOf: null,  // internal marker
+            parentItemId: null, // filled later in DB create if you want
+            _modifierOf: null, // internal marker
         };
 
         if (isModifier && lastMainItemIndex >= 0) {
             entry._modifierOf = lastMainItemIndex;
             items.push(entry);
         } else {
-            // main item
             lastMainItemIndex = items.length;
             items.push(entry);
         }
 
-        // Move pointer:
-        // If price present => consumed 3 lines, else consumed 2
         i += hasPrice ? 3 : 2;
     }
 
-    // Convert internal marker into nested structure for easier DB insert
+    // Nest modifiers under their main item
     const mainItems = [];
     const mainIndexMap = new Map(); // oldIndex -> mainItems index
-    const modifiersByMain = new Map(); // mainItemsIndex -> []
 
-    // First pass: identify main items (no _modifierOf)
     items.forEach((it, idx) => {
         if (it._modifierOf === null) {
-            const mi = {
+            mainIndexMap.set(idx, mainItems.length);
+            mainItems.push({
                 name: it.name,
                 quantity: it.quantity,
                 priceCents: it.priceCents,
                 notes: it.notes,
                 modifiers: [],
-            };
-            mainIndexMap.set(idx, mainItems.length);
-            mainItems.push(mi);
+            });
         }
     });
 
-    // Second pass: attach modifiers
-    items.forEach((it, idx) => {
+    items.forEach((it) => {
         if (it._modifierOf !== null) {
-            const mainOldIndex = it._modifierOf;
-            const mainNewIndex = mainIndexMap.get(mainOldIndex);
+            const mainNewIndex = mainIndexMap.get(it._modifierOf);
             if (mainNewIndex === undefined) return;
 
             mainItems[mainNewIndex].modifiers.push({
@@ -352,19 +368,23 @@ function parseInboundEmail({ from, subject, text }) {
     const rawText = normalizeText(text || "");
     const storeCode = parseStoreCode(subject, rawText);
     const fulfillmentType = parseFulfillmentType(subject, rawText);
-    const pickupTime = parsePickupTime(rawText);
+
+    // ✅ Pickup OR Delivery time
+    const serviceTime = parseServiceTime(rawText);
+
+    // ✅ Delivery address (only if delivery)
+    const deliveryAddress =
+        fulfillmentType === "DELIVERY" ? parseDeliveryAddress(rawText) : null;
+
     const customer = parseCustomerBlock(rawText);
     const totals = parseTotals(rawText);
     const items = parseItemsWithModifiers(rawText);
     const customerNotes = parseNotesLine(rawText);
 
-    // Confidence rule v2:
-    // - Must have pickupTime + at least 1 main item to be "RECEIVED"
-    // - Else "PENDING_REVIEW"
-    const confident = Boolean(pickupTime) && items.length > 0;
+    // Confidence rule:
+    // - Must have serviceTime + at least 1 main item to be "RECEIVED"
+    const confident = Boolean(serviceTime) && items.length > 0;
 
-    // Flatten items into create-friendly list WITH modifiers nested (for later DB create)
-    // We'll return nested structure so your controller can create parent items then modifiers.
     return {
         source: "cfa.email",
         storeCode: storeCode || null,
@@ -376,10 +396,14 @@ function parseInboundEmail({ from, subject, text }) {
         guestCount: customer.guestCount,
         paperGoods: customer.paperGoods,
 
-        pickupTime: pickupTime || null,
+        // Keep your existing DB field name (works for delivery too)
+        pickupTime: serviceTime || null,
+
+        // Optional but very useful (safe even if your DB ignores it)
+        deliveryAddress: deliveryAddress || null,
+
         notes: buildNotes({ from, subject, customerNotes, text: rawText }),
 
-        // NEW schema money fields
         subtotalCents: totals.subtotalCents || 0,
         taxCents: totals.taxCents || 0,
         totalCents: totals.totalCents || 0,
