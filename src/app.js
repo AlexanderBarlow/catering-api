@@ -12,6 +12,7 @@ const ordersRoutes = require("./routes/orders.routes");
 const usersRoutes = require("./routes/users.routes");
 const healthRoutes = require("./routes/health.routes");
 const webhookRoutes = require("./routes/webhook.routes");
+const authMeRoutes = require("./routes/authMe.routes");
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.get("/docs/", (_req, res) => {
  */
 app.use("/health", healthRoutes);
 app.use("/auth", authRoutes);
+app.use("/auth", authMeRoutes);
 app.use("/orders", ordersRoutes);
 app.use("/webhooks", webhookRoutes);
 app.use("/users", usersRoutes);
@@ -72,7 +74,8 @@ app.use((req, res) => {
 
 app.use((err, _req, res, _next) => {
     console.error(err);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ error: "Internal Server Error", message: err.message });
 });
+
 
 module.exports = { app };

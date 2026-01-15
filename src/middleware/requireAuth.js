@@ -1,19 +1,31 @@
+// src/middleware/requireAuth.js
 const { verifyAccessToken } = require("../lib/auth");
 
 function requireAuth(req, res, next) {
-    const header = req.header("Authorization");
-    if (!header || !header.startsWith("Bearer ")) {
-        return res.status(401).json({ error: "Missing Authorization Bearer token" });
+    // headers can vary in casing; Express normalizes them to lowercase internally
+    const raw = req.get("authorization") || req.get("Authorization") || "";
+
+    if (typeof raw !== "string" || !raw.toLowerCase().startsWith("bearer ")) {
+        return res
+            .status(401)
+            .json({ error: "Missing Authorization Bearer token" });
     }
 
-    const token = header.slice("Bearer ".length);
+    const token = raw.slice(7).trim(); // remove "bearer "
+
+    if (!token || typeof token !== "string") {
+        return res.status(401).json({ error: "Missing token" });
+    }
 
     try {
         const decoded = verifyAccessToken(token);
         req.user = decoded; // { sub, email, role, iat, exp }
-        next();
+        return next();
     } catch (err) {
-        return res.status(401).json({ error: "Invalid or expired token" });
+        return res.status(401).json({
+            error: "Invalid or expired token",
+            message: err?.message || String(err),
+        });
     }
 }
 
