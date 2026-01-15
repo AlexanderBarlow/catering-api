@@ -102,6 +102,29 @@ const authController = {
 
         res.json({ accessToken: newAccessToken });
     },
+
+    // GET /auth/me
+    me: async (req, res) => {
+        try {
+            // assuming your verifyAccessToken middleware sets req.user
+            // (common pattern: req.user = { sub, email, role })
+            const userId = req.user?.sub;
+
+            if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, email: true, role: true, name: true },
+            });
+
+            if (!user) return res.status(404).json({ error: "User not found" });
+
+            return res.json({ user });
+        } catch (e) {
+            return res.status(500).json({ error: "Failed to load user" });
+        }
+    },
+
 };
 
 module.exports = { authController };

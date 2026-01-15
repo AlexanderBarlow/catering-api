@@ -44,6 +44,24 @@ async function verifyTokenHash(token, tokenHash) {
     return bcrypt.compare(token, tokenHash);
 }
 
+function requireAccessToken(req, res, next) {
+    const header = req.headers.authorization || "";
+    const [type, token] = header.split(" ");
+
+    if (type !== "Bearer" || !token) {
+        return res.status(401).json({ error: "Missing access token" });
+    }
+
+    try {
+        const payload = verifyAccessToken(token); // { sub, email, role, iat, exp }
+        req.user = payload;
+        return next();
+    } catch {
+        return res.status(401).json({ error: "Invalid or expired token" });
+    }
+}
+
+
 module.exports = {
     signAccessToken,
     signRefreshToken,
@@ -53,4 +71,5 @@ module.exports = {
     verifyPassword,
     hashToken,
     verifyTokenHash,
+    requireAccessToken
 };
