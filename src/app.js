@@ -13,6 +13,7 @@ const usersRoutes = require("./routes/users.routes");
 const healthRoutes = require("./routes/health.routes");
 const webhookRoutes = require("./routes/webhook.routes");
 const authMeRoutes = require("./routes/authMe.routes");
+const pushTokenRoutes = require("./routes/pushTokens.routes");
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use("/auth", authRoutes);
 app.use("/auth", authMeRoutes);
 app.use("/orders", ordersRoutes);
 app.use("/webhooks", webhookRoutes);
+app.use("/push-tokens", pushTokenRoutes);
 app.use("/users", usersRoutes);
 
 /**

@@ -5,6 +5,7 @@ const { ordersController } = require("../controllers/orders.controller");
 router.use(requireAuth);
 
 router.get("/", ordersController.list);
+router.post("/", ordersController.create);
 router.get("/:id", ordersController.getById);
 router.patch("/:id/status", ordersController.updateStatus);
 

@@ -2,6 +2,7 @@
 const crypto = require("crypto");
 const { prisma } = require("../lib/prisma");
 const { parseInboundEmail } = require("../lib/emailParser");
+const { sendNewOrderPush } = require("../lib/expoPush");
 
 // IMPORTANT: replace with provider signature verification
 function verifyWebhook(_req) {
@@ -219,6 +220,10 @@ const webhookController = {
                 io.to(`order:${order.id}`).emit("order:updated", { orderId: order.id });
                 io.to("role:ADMIN").emit("analytics:invalidate", { scope: "overview" });
             }
+
+            sendNewOrderPush(order).catch((error) => {
+                console.error("New order push failed", error);
+            });
 
             return res.json({
                 ok: true,

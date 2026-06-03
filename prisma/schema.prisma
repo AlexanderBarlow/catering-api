@@ -48,6 +48,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   refreshTokens RefreshToken[]
+  pushTokens    PushToken[]
   auditLogs     AuditLog[]
   orderEvents   OrderEvent[]   @relation("EventActor")
 
@@ -67,6 +68,28 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model PushToken {
+  id               String    @id @default(uuid())
+  userId           String
+  token            String    @unique
+  provider         String    @default("expo")
+  platform         String?
+  channelId        String?
+  deviceName       String?
+  deviceType       Int?
+  appOwnership     String?
+  disabledAt       DateTime?
+  lastRegisteredAt DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([disabledAt])
+  @@index([lastRegisteredAt])
 }
 
 model Order {

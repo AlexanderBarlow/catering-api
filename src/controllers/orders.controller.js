@@ -1,5 +1,6 @@
 const { z } = require("zod");
 const { prisma } = require("../lib/prisma");
+const { sendNewOrderPush } = require("../lib/expoPush");
 
 const statusToTimestampField = {
     RECEIVED: "receivedAt",
@@ -95,6 +96,10 @@ const ordersController = {
         const io = req.app.get("io");
         io.to("role:ADMIN").emit("order:created", { orderId: order.id });
         io.to("role:STAFF").emit("order:created", { orderId: order.id });
+
+        sendNewOrderPush(order).catch((error) => {
+            console.error("New order push failed", error);
+        });
 
         res.status(201).json({ data: order });
     },
